@@ -4,7 +4,10 @@ from io import StringIO
 from Bio import AlignIO
 from Bio.Align import MultipleSeqAlignment
 from Bio.Align.Applications import MafftCommandline
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 import shutil
+import numpy as np
 from ete3 import Tree, faces, AttrFace, TreeStyle, NodeStyle
 from tqdm import tqdm
 import PyQt5 #necesario para ete3
@@ -46,83 +49,157 @@ def mafft_align_multiple(conc_fasta, aligned_fasta):
     return alignment, stderr
 
 def plotChanges(alignment):
-    # Inicializamos listas donde almacenaremos los numeros de cambios por posicion
-    nogap_num_changes = []
-    absolute_num_changes = []
-    # Iterar por cada columna del alineamiento
+    """
+    A function to create a .png file in which are plotted the distribution of Divergence between sequences
+    :param alignment: Resultant alignment class-MultipleSeqAlignment
+    """
+
+    # Initialize lists where we will store the number of changes per position
+    absolute_char_changes = [] # GENERAL CHARACTER CHANGES (e.g. 'nn-nttn' = 2): max achievable value = 4
+    nogap_char_changes = [] # CHARACTER CHANGES DISREGARDING GAPS (e.g. 'nn-nttn' = 1): max achievable value = 3
+    absolute_num_changes = [] # NUMBER OF DISTINCT CHARS IN COLUMN FROM MAX (e.g. 'nn-nttn' = 3)
+    nogap_num_changes = [] # NUMBER OF DISTINCT CHARS IN COLUMN FROM MAX DISREGARDING GAPS (e.g. 'nn-nttn' = 2)
+
+    # Iterate over each column in the alignment
     for i in tqdm(range(alignment.get_alignment_length())):
         column = alignment[:, i]  # nn-ntnn
 
-        # Generar un diccionario con las entradas y sus ocurrencias
-        column_counts = {}  # {'n': 3, '-': 2, 't': 1}
+        # Generate a dictionary with the entries and their occurrences
+        column_counts = {} # {'n': 3, '-': 2, 't': 1}
         for char in column:
             if char in column_counts:
                 column_counts[char] += 1
             else:
                 column_counts[char] = 1
 
-        # CONTAR DIFERENCIAS EN CADA COLUMNA
-        # con gaps
-        max_val = max(column_counts.values())  # obtenemos el valor máximo del diccionario
-        absolute_num_changes_calc = sum([v for k, v in column_counts.items() if v != max_val])
+        # COUNT DIFFERENCES IN EACH COLUMN
+        # with gaps
+        max_val = max(column_counts.values()) # get the maximum value from the dictionary
+        absolute_char_changes_calc = sum([v for k, v in column_counts.items() if v != max_val]) # count differences
+        absolute_char_changes.append(absolute_char_changes_calc) # store in the vector
+        absolute_num_changes_calc = sum(column_counts.values()) - max_val # count differences (sum of all - most common)
         absolute_num_changes.append(absolute_num_changes_calc)
-        # sin gaps
-        nogap_column_counts = {key: value for key, value in column_counts.items() if key != '-'}
-        nogap_num_changes_calc = sum([v for k, v in nogap_column_counts.items() if v != max_val])
+        # without gaps (same as with gaps except for the first line)
+        nogap_column_counts = {key: value for key, value in column_counts.items() if key != '-'} # get column without gaps
+        nogap_char_changes_calc = sum([v for k, v in nogap_column_counts.items() if v != max_val])
+        nogap_char_changes.append(nogap_char_changes_calc)
+        nogap_num_changes_calc = sum(nogap_column_counts.values()) - max_val
         nogap_num_changes.append(nogap_num_changes_calc)
-        # Calcular el número de posiciones que tienen algún gap en el alineamiento
 
-    # PLOT NUMERO DE CAMBIOS POR POSICION
-    # ignorar el tipico warning de matplotlib:
+    absolute_char_changes = np.array(absolute_char_changes) # convert to np.array
+    nogap_char_changes = np.array(nogap_char_changes)
+
+    # PLOT NUMBER OF CHANGES PER POSITION
+    # ignore typical matplotlib warning:
     warnings.filterwarnings("ignore", message="Matplotlib is currently using agg, which is a non-GUI backend, so cannot show the figure.")
-    posiciones = range(len(nogap_num_changes))
-
-    # Lo mismo pero teniendo en cuenta los gaps
+    positions = np.array(range(len(nogap_char_changes)))
+    # same but with gaps
     warnings.filterwarnings("ignore", message="Matplotlib is currently using agg, which is a non-GUI backend, so cannot show the figure.")
-    posiciones_abs = range(len(absolute_num_changes))
+    positions_abs = np.array(range(len(absolute_char_changes)))
 
-    print("GRAFICANDO DISTRIBUCIONES...")
-    fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1, figsize=(8, 8))
-    # Trazar la primera gráfica en el primer subplot
-    ax1.bar(posiciones_abs, absolute_num_changes)
-    ax1.set_title('Número de cambios con gap:' + str(sum(absolute_num_changes)))
-    ax1.set_xlabel('Posición')
-    ax1.set_ylabel('nº de cambios')
+    print("PLOTTING DISTRIBUTIONS...")
+    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(8, 10))
+    # plot the first graph in the first subplot
+    axs[0, 0].bar(positions_abs, absolute_char_changes)
+    axs[0, 0].set_title('Number of different BP with gaps:' + str(sum(absolute_char_changes)))
+    axs[0, 0].set_xlabel('Position')
+    axs[0, 0].set_ylabel('Number of changes')
     # Trazar la segunda gráfica en el segundo subplot
-    ax2.bar(posiciones, nogap_num_changes)
-    ax2.set_title('Número de cambios sin gap:' + str(sum(nogap_num_changes)))
-    ax2.set_xlabel('Posición')
-    ax2.set_ylabel('nº de cambios')
+    axs[1, 0].bar(positions, nogap_char_changes)
+    axs[1, 0].set_title('Number of different BP without gaps:' + str(sum(nogap_char_changes)))
+    axs[1, 0].set_xlabel('Position')
+    axs[1, 0].set_ylabel('Number of changes')
+    # Trazar la tercera
+    axs[0, 1].bar(positions_abs, absolute_num_changes)
+    axs[0, 1].set_title('Number of total variations with gaps:' + str(sum(absolute_num_changes)))
+    axs[0, 1].set_xlabel('Position')
+    axs[0, 1].set_ylabel('Number of changes')
+    # Trazar la cuarta
+    axs[1, 1].bar(positions, nogap_num_changes)
+    axs[1, 1].set_title('Number of total variations without gap:' + str(sum(nogap_num_changes)))
+    axs[1, 1].set_xlabel('Position')
+    axs[1, 1].set_ylabel('Number of changes')
     # Mostrar gráficas
-    plt.show()
+    plt.subplots_adjust(hspace=0.4, wspace=0.4)#ajustar espacio
+    plt.savefig("distributions.png")
 
 def checkAlign(alignment, new_aligned_fasta):
     """
     A function to check the quality of a multiple sequence alignment and remove highly gapped sequences.
+        1) Erases sequences with excesive gaps
+        2) Removes columns with gaps
+        3) Creates a new file containing the new alignment.
     :param alignment: A Biopython alignment object containing the multiple sequence alignment.
     :param new_aligned_fasta: The path to the output FASTA file for the new alignment.
+    :return new_align_1: (MultipleSeqAlignment) The alignment with correction 1)
+    :return new_align_2: (MultipleSeqAlignment) The alignment with corrections 1) and 2)
     """
 
-    plotChanges(alignment)
+    # 1)Erases sequences with excesive gaps
+    ids_og = []
     seq_index_to_remove = []
-    print("Comprobando delecciones")
-    for j in range(alignment.__len__()):
+    for record in alignment:
+        ids_og.append(record.id)
 
+    print("Checking sequences with a high number of detetions...")
+    for j in range(alignment.__len__()):
         fila = alignment[j, :]
         num_guiones = fila.count('-')
         length = fila.__len__()
         prop_delec = num_guiones / length
 
-        # ELIMINAR SECUENCIAS CON MUCHOS GAPS
+        # REMOVE SEQUENCES WITH MANY GAPS
         if prop_delec > 0.05:
-            seq_index_to_remove.append(j)  # Por ejemplo, eliminar la última secuencia
-            print("Secuencia eliminada:" + str(j))
-        new_align = MultipleSeqAlignment([])
+            seq_index_to_remove.append(j)
+            print("Sequence removed:" + str(j))
+        else:
+            print("Sequence not removed -> ID: "+ids_og[j])
+    new_align_1 = MultipleSeqAlignment([]) # Create de new alignment
     for i, record in enumerate(alignment):
         if not i in seq_index_to_remove:
-            new_align.append(record)
-    # Guardar la nueva alineación en un archivo FASTA
-    AlignIO.write(new_align, new_aligned_fasta, "fasta")
+            new_align_1.append(record)
+
+    # 2) Removes columns with gaps
+    # Initialize parameters
+    ids = []  # Store the sequence ids, we will need them to reconstruct the alignment
+    for record in new_align_1:
+        ids.append(record.id)
+    col_index_to_remove = []
+
+    print("Checking deletions, step 2: remove columns with deletions")
+    for j in range(new_align_1.get_alignment_length()):
+        col = new_align_1[:, j]
+        # STORE COLUMNS INDICES WITH GAPS
+        if '-' in col:
+            col_index_to_remove.append(j)
+
+    # Transpose the matrix
+    alignment_array = np.array(
+        [list(rec.seq) for rec in new_align_1])  # Convert the new_align_1 matrix into a NumPy array
+    alignment_transposed = alignment_array.T  # Transpose the alignment matrix
+    alignment_transposed_records = [  # Convert the transposed NumPy array into a new MultipleSeqAlignment object
+        SeqRecord(Seq("".join(row)))
+        for i, row in enumerate(alignment_transposed)]
+    new_align_1_T = MultipleSeqAlignment(alignment_transposed_records)
+    # Generate a new alignment with only sequences without gaps
+    new_align_2_T = MultipleSeqAlignment([])
+    for i, record in tqdm(enumerate(new_align_1_T), desc="Total iterations: " + str(len(new_align_1_T)) + "  //  Current iteration"):
+        if not i in col_index_to_remove:
+            new_align_2_T.append(record)
+
+    # Transpose the obtained alignment to return it to its original form
+    alignment_array_2 = np.array([list(rec.seq) for rec in new_align_2_T])  # Convert the alignment into a NumPy array
+    alignment_transposed_2 = alignment_array_2.T  # Transpose the matrix
+    alignment_transposed_records_2 = [  # Convert the transposed NumPy matrix into a new MultipleSeqAlignment object
+        SeqRecord(Seq("".join(row)), id=ids[i])
+        for i, row in enumerate(alignment_transposed_2)]
+    new_align_2 = MultipleSeqAlignment(alignment_transposed_records_2)
+
+    #Guardar el alignment
+    with open(new_aligned_fasta, "w") as handle:
+        AlignIO.write(new_align_2, handle, "fasta")
+
+    return new_align_1, new_align_2
 
 def createTree(path_igTree, new_aligned_fasta,output_sequences, output_iqtree_dir):
     """
@@ -143,42 +220,43 @@ def createTree(path_igTree, new_aligned_fasta,output_sequences, output_iqtree_di
     new_aligned_fasta = os.path.basename(new_aligned_fasta)
 
     for file_name in os.listdir(source_dir):
-        # Verifica que el nombre del archivo comience con "new_aligned_sequences.fasta."
+        # Check that the file name starts with "new_aligned_sequences.fasta."
         if file_name.startswith(new_aligned_fasta + "."):
-            # Construye la ruta completa del archivo original
+            # Build the complete path of the original file
             file_path = os.path.join(source_dir, file_name)
-            # Construye la ruta completa donde se moverá el archivo
+            # Build the complete path where the file will be moved
             dest_path = os.path.join(output_iqtree_dir, file_name)
-            # Mueve el archivo al nuevo directorio
+            # Move the file to the new directory
             shutil.move(file_path, dest_path)
 
     return tree
 
 if __name__ == '__main__':
     #DEFINE DIRECTORYS
-    input_dir = "input_sequences"  # Ruta al directorio con todas las secuencias fasta en diferentes archivos
-    output_sequences = "output_sequences" # Ruta al directorio con las secuencias de salida (conc_fasta, aligned_fasta, new_aligned_fasta)
+    input_dir = "input_sequences"  # Path to the directory with all fasta sequences in separate files
+    output_sequences = "output_sequences"  # Path to the directory with the output sequences (conc_fasta, aligned_fasta, new_aligned_fasta)
     output_iqtree_dir = "output_iqtree"
-    path_iqTree = "/Users/macbook/Downloads/iqtree-2.2.0-MacOSX/bin/iqtree2"  # Ruta al ejecutable de igTree
-
+    path_iqTree = "/Users/macbook/Downloads/iqtree-2.2.0-MacOSX/bin/iqtree2"  # Path to the igTree executable
 
     #DEFINE FILE NAMES
-    conc_fasta = "conc_sequences.fasta"  # Ruta del archivo que se creará con las secuencias de input concatenadas
-    aligned_fasta = "aligned_sequences.fasta"  # Ruta del archivo con las secuencias alineadas con MAFFT
-    new_aligned_fasta = "new_aligned_sequences.fasta"  # Ruta del archivo con las secuencias realineadas
+    conc_fasta = "conc_sequences.fasta"  # Path to the file that will be created with concatenated input sequences
+    aligned_fasta = "aligned_sequences.fasta"  # Path to the file with sequences aligned with MAFFT
+    new_aligned_fasta = "new_aligned_sequences.fasta"  # Path to the file with the realigned sequences
     os.makedirs(output_sequences, exist_ok=True)
-    conc_fasta = os.path.join(output_sequences,conc_fasta)
-    aligned_fasta = os.path.join(output_sequences,aligned_fasta)
-    new_aligned_fasta = os.path.join(output_sequences,new_aligned_fasta)
+    conc_fasta = os.path.join(output_sequences, conc_fasta)
+    aligned_fasta = os.path.join(output_sequences, aligned_fasta)
+    new_aligned_fasta = os.path.join(output_sequences, new_aligned_fasta)
 
     #RUN FUNCTIONS
-    concatenate_fasta_files(input_dir, conc_fasta)
-    alignment, stderr = mafft_align_multiple(conc_fasta, aligned_fasta)
-    checkAlign(alignment, new_aligned_fasta)
-    tree = createTree(path_iqTree, new_aligned_fasta,output_sequences, output_iqtree_dir)
+    concatenate_fasta_files(input_dir, conc_fasta)  # concatenate all fasta files in the input_dir
+    alignment, stderr = mafft_align_multiple(conc_fasta, aligned_fasta)  # align the concatenated fasta file using MAFFT
+    new_alignment_1, new_alignment_2 = checkAlign(alignment, new_aligned_fasta)  # realign sequences and create a new alignment file
+    plotChanges(alignment)  # create a plot showing the alignment changes
+    tree = createTree(path_iqTree, new_aligned_fasta, output_sequences, output_iqtree_dir)  # create a phylogenetic tree using IgTree
+
 
     #MANAGE TREE
-    tree.render("arbol.png", w=400)
-    print(stderr)
-    print(tree)
-    tree.show()
+    tree.render("arbol.png", w=400)  # render the tree to a png file
+    print(stderr)  # print any errors from the MAFFT alignment
+    print(tree)  # print the tree object
+    tree.show()  # show the tree in the console or in a viewer
