@@ -36,15 +36,22 @@ def mafft_align_multiple(conc_fasta, aligned_fasta):
     :return alignment: Resultant alignment class-MultipleSeqAlignment
     :return stderr: string - Historial of the strategy followed for the alignment
     """
-    mafft_cline = MafftCommandline(input=conc_fasta)
-    aligned_seqs, stderr = mafft_cline()  # stderr es ek
 
-    # Parse the aligned sequences with AlignIO
-    alignment = AlignIO.read(StringIO(aligned_seqs), "fasta")
+    if os.system("mafft --version") == 0:
+        print("MAFFT está instalado en tu sistema.")
+        mafft_cline = MafftCommandline(input=conc_fasta)
+        aligned_seqs, stderr = mafft_cline()
 
-    # Write the aligned sequences to a new file
-    with open(aligned_fasta, "w") as handle:
-        AlignIO.write(alignment, handle, "fasta")
+        # Parse the aligned sequences with AlignIO
+        alignment = AlignIO.read(StringIO(aligned_seqs), "fasta")
+
+        # Write the aligned sequences to a new file
+        with open(aligned_fasta, "w") as handle:
+            AlignIO.write(alignment, handle, "fasta")
+    else:
+        print("MAFFT no está instalado en tu sistema.")
+        return
+
 
     return alignment, stderr
 
@@ -233,7 +240,7 @@ def createTree(path_igTree, new_aligned_fasta,output_sequences, output_iqtree_di
 
 if __name__ == '__main__':
     #DEFINE DIRECTORYS
-    input_dir = "input_sequences"  # Path to the directory with all fasta sequences in separate files
+    input_dir = "input_20"  # Path to the directory with all fasta sequences in separate files
     output_sequences = "output_sequences"  # Path to the directory with the output sequences (conc_fasta, aligned_fasta, new_aligned_fasta)
     output_iqtree_dir = "output_iqtree"
     path_iqTree = "/Users/macbook/Downloads/iqtree-2.2.0-MacOSX/bin/iqtree2"  # Path to the igTree executable
